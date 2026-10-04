@@ -31,7 +31,8 @@
   #editor textarea { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; }
   #viewer { background:#000; color:#fff; position:relative; }
   #stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; align-items:center; justify-content:center; text-align:center; }
-  #shown { margin:0; width:100%; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:anywhere; color:#fff; }
+  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:normal; color:#fff; }
+  #shown.wrapany { overflow-wrap:anywhere; }
   #shown.empty { color:#57534e; font-weight:500; }
   #shown.mirror { transform: scaleX(-1); }
   #vctl { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#1c1917; color:#fafaf9; border-top:1px solid #44403c; flex-wrap:wrap; }
@@ -2448,11 +2449,13 @@ safe-buffer/index.js:
   var shown = $('shown'), stage = $('stage'), current = '';
   function fit(empty) {
     if (empty) { shown.style.fontSize = '28px'; return; }
-    if (!$('auto').checked) { shown.style.fontSize = $('size').value + 'px'; return; }
+    if (!$('auto').checked) { shown.classList.add('wrapany'); shown.style.fontSize = $('size').value + 'px'; return; }
+    shown.classList.remove('wrapany');  // whole words only: the font is limited by the longest word's width too
     var lo = 16, hi = 600, cs = getComputedStyle(stage);
     var maxH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    while (hi - lo > 2) { var mid = (lo + hi) >> 1; shown.style.fontSize = mid + 'px'; if (shown.scrollHeight <= maxH) lo = mid; else hi = mid; }
+    while (hi - lo > 2) { var mid = (lo + hi) >> 1; shown.style.fontSize = mid + 'px'; if (shown.scrollHeight <= maxH && shown.scrollWidth <= shown.clientWidth + 1) lo = mid; else hi = mid; }
     shown.style.fontSize = lo + 'px';
+    if (shown.scrollWidth > shown.clientWidth + 1) shown.classList.add('wrapany');  // a word too long even at the minimum size
   }
   function render(t) { current = t; var empty = !t.trim(); shown.textContent = empty ? 'Очікування тексту…' : t; shown.classList.toggle('empty', empty); fit(empty); }
   window.addEventListener('resize', function () { if (mode === 'view') fit(!current.trim()); });
