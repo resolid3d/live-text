@@ -2420,6 +2420,7 @@ safe-buffer/index.js:
   var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
   var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, gotAny = false;
   var peer = {};  // broker url -> whether the other side is present there ('on'/'off' presence, with a will for vanishing)
+  var peerSeen = false, goneT = null;  // viewer: the phone has been here; timer for a phone that vanished without saying bye
   function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
 
   function clearHash() { try { if (location.hash) history.replaceState(null, '', location.pathname + location.search); } catch (e) { try { location.hash = ''; } catch (e2) {} } }
@@ -2433,6 +2434,8 @@ safe-buffer/index.js:
   function refresh() {
     var n = online();
     if (mode === 'view') {
+      if (peerOn()) { peerSeen = true; clearTimeout(goneT); goneT = null; }
+      else if (peerSeen && n && !goneT) goneT = setTimeout(function () { goneT = null; if (mode === 'view' && online() && !peerOn()) cleanup(); }, 8000);
       if (!n) setDots(false, 'Немає зв\u2019язку з сервером…');
       else if (peerOn()) setDots(true, 'Телефон підключено');
       else if (gotAny) setDots(false, 'Телефон відключився · код ' + code);
@@ -2443,11 +2446,11 @@ safe-buffer/index.js:
     }
   }
 
-  function sayOff() { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'off', { retain: true, qos: 0 }); } catch (e) {} } }); }
+  function sayOff() { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'bye', { retain: true, qos: 0 }); } catch (e) {} } }); }
   function cleanup() {
     sayOff();  // tell the other side right away instead of leaving it to the broker's will
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
-    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0;
+    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false; clearTimeout(goneT); goneT = null;
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
@@ -2494,7 +2497,10 @@ safe-buffer/index.js:
         var s = payload.toString();
         if (role === 'view' && topic === TT) {
           try { var m = JSON.parse(s); if (typeof m.t === 'string' && m.s > lastSeq) { lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh(); } } catch (e) {}
-        } else if (topic === peerTopic) { peer[url] = (s === 'on'); refresh(); }
+        } else if (topic === peerTopic) {
+          if (s === 'bye' && role === 'view' && peerSeen) { cleanup(); return; }  // the phone left: back to the start screen
+          peer[url] = (s === 'on'); refresh();
+        }
       });
     });
   }
