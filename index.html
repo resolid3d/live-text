@@ -2420,7 +2420,11 @@ safe-buffer/index.js:
   var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
   var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, gotAny = false;
   var peer = {};  // broker url -> whether the other side is present there ('on'/'off' presence, with a will for vanishing)
-  var peerSeen = false, goneT = null;  // viewer: the phone has been here; timer for a phone that vanished without saying bye
+  var peerSeen = false;  // viewer: the phone has been here
+  function store(kind) { try { return kind === 'edit' ? localStorage : sessionStorage; } catch (e) { return null; } }
+  function saveSession() { var st = store(mode); if (st && code) try { st.setItem('lt_' + mode, JSON.stringify({ code: code, text: lastText, at: Date.now() })); } catch (e) {} }
+  function loadSession(kind) { var st = store(kind); try { var v = st && JSON.parse(st.getItem('lt_' + kind)); if (v && /^[a-z0-9]{8}$/.test(v.code) && Date.now() - v.at < 12 * 3600e3) return v; } catch (e) {} return null; }
+  function dropSession() { ['edit', 'view'].forEach(function (k) { var st = store(k); try { st && st.removeItem('lt_' + k); } catch (e) {} }); }
   function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
 
   function clearHash() { try { if (location.hash) history.replaceState(null, '', location.pathname + location.search); } catch (e) { try { location.hash = ''; } catch (e2) {} } }
@@ -2434,11 +2438,10 @@ safe-buffer/index.js:
   function refresh() {
     var n = online();
     if (mode === 'view') {
-      if (peerOn()) { peerSeen = true; clearTimeout(goneT); goneT = null; }
-      else if (peerSeen && n && !goneT) goneT = setTimeout(function () { goneT = null; if (mode === 'view' && online() && !peerOn()) cleanup(); }, 8000);
+      if (peerOn()) peerSeen = true;
       if (!n) setDots(false, 'Немає зв\u2019язку з сервером…');
       else if (peerOn()) setDots(true, 'Телефон підключено');
-      else if (gotAny) setDots(false, 'Телефон відключився · код ' + code);
+      else if (peerSeen) setDots(false, 'Телефон не на зв’язку, чекаю · код ' + code);
       else setDots(true, 'Готово, чекаю на телефон');
     } else if (mode === 'edit') {
       if (!n) setDots(false, 'Підключення до сервера…');
@@ -2446,11 +2449,12 @@ safe-buffer/index.js:
     }
   }
 
-  function sayOff() { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'bye', { retain: true, qos: 0 }); } catch (e) {} } }); }
+  function sayOff(p) { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, p, { retain: true, qos: 0 }); } catch (e) {} } }); }
   function cleanup() {
-    sayOff();  // tell the other side right away instead of leaving it to the broker's will
+    sayOff('bye');  // an explicit exit: the screen goes back to the start (a phone that just vanished is waited for)
+    dropSession(); if (mode === 'edit') { $('input').value = ''; lastText = ''; }
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
-    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false; clearTimeout(goneT); goneT = null;
+    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false;
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
@@ -2510,17 +2514,25 @@ safe-buffer/index.js:
     clients.forEach(function (c) { if (c.connected) { try { c.publish(TT, msg, { retain: true, qos: 0 }); } catch (e) {} } });
   }
   function queueSend() { if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); }
-  $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); });
-  $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); $('input').focus(); });
+  $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); saveSession(); });
+  $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); saveSession(); $('input').focus(); });
   setInterval(function () {  // heal dropped messages and stale wills
     if (!mode) return;
     clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'on', { retain: true, qos: 0 }); } catch (e) {} } });
     if (mode === 'edit') sendNow();
   }, 5000);
-  window.addEventListener('pagehide', function () { if (mode) sayOff(); });
+  window.addEventListener('pagehide', function () { if (mode) sayOff('off'); });
+  var hiddenAt = 0;
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+    if (!mode || Date.now() - hiddenAt < 5000) return;
+    // after sleep the old sockets are often dead but not yet noticed: open fresh ones (graceful end, so no stale will)
+    clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
+    clients = []; peer = {}; setDots(false, 'Відновлюю з’єднання…'); open(mode);
+  });
 
-  function startViewer() {
-    mode = 'view'; code = randCode(); show('pair'); keepAwake();
+  function startViewer(resume) {
+    mode = 'view'; code = resume || randCode(); saveSession(); show('pair'); keepAwake();
     $('codeText').textContent = code;
     var url = location.origin + location.pathname + '#' + code;
     var hosted = /^https?:$/.test(location.protocol) && !/claudeusercontent|srcdoc/.test(location.href);
@@ -2529,19 +2541,23 @@ safe-buffer/index.js:
     setDots(false, 'Підключення до сервера…');
     open('view');
   }
-  function startEditor(c) {
+  function startEditor(c, text) {
     c = c.trim().toLowerCase();
     if (!/^[a-z0-9]{8}$/.test(c)) { alert('Код має містити 8 символів'); return; }
-    code = c; mode = 'edit'; show('editor'); keepAwake();
+    if (text != null) { lastText = text; $('input').value = text; }
+    code = c; mode = 'edit'; show('editor'); keepAwake(); saveSession();
     clearHash();
     setDots(false, 'Підключення до сервера…');
     open('edit');
   }
-  $('btnView').addEventListener('click', startViewer);
+  $('btnView').addEventListener('click', function () { startViewer(); });
   $('btnEdit').addEventListener('click', function () { show('join'); $('codeIn').focus(); });
   $('btnGo').addEventListener('click', function () { startEditor($('codeIn').value); });
   var h = (location.hash || '').replace('#', '').trim();
-  if (/^[a-z0-9]{8}$/i.test(h)) startEditor(h);
+  var se = loadSession('edit'), sv = loadSession('view');
+  if (/^[a-z0-9]{8}$/i.test(h)) startEditor(h, se && se.code === h.toLowerCase() ? se.text : '');
+  else if (sv) startViewer(sv.code);   // the screen was reloaded: same code
+  else if (se) startEditor(se.code, se.text);  // the phone's tab was discarded while asleep: resume
 })();
 </script>
 </body>
