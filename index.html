@@ -2418,7 +2418,9 @@ safe-buffer/index.js:
 (function () {
   var $ = function (id) { return document.getElementById(id); };
   var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
-  var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, viewerOn = false, gotAny = false;
+  var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, gotAny = false;
+  var peer = {};  // broker url -> whether the other side is present there ('on'/'off' presence, with a will for vanishing)
+  function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
 
   function clearHash() { try { if (location.hash) history.replaceState(null, '', location.pathname + location.search); } catch (e) { try { location.hash = ''; } catch (e2) {} } }
   function show(id) { ['start','pair','join','editor','viewer'].forEach(function (s) { $(s).classList.toggle('on', s === id); }); }
@@ -2432,17 +2434,20 @@ safe-buffer/index.js:
     var n = online();
     if (mode === 'view') {
       if (!n) setDots(false, 'Немає зв\u2019язку з сервером…');
-      else if (gotAny) setDots(true, 'Підключено');
-      else setDots(true, 'Готово, чекаю на текст');
+      else if (peerOn()) setDots(true, 'Телефон підключено');
+      else if (gotAny) setDots(false, 'Телефон відключився · код ' + code);
+      else setDots(true, 'Готово, чекаю на телефон');
     } else if (mode === 'edit') {
       if (!n) setDots(false, 'Підключення до сервера…');
-      else setDots(true, viewerOn ? 'Екран підключено' : 'Екран ще не відкритий або офлайн');
+      else setDots(peerOn(), peerOn() ? 'Екран підключено' : 'Екран ще не відкритий або офлайн');
     }
   }
 
+  function sayOff() { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'off', { retain: true, qos: 0 }); } catch (e) {} } }); }
   function cleanup() {
-    clients.forEach(function (c) { try { c.end(true); } catch (e) {} });
-    clients = []; mode = null; code = null; viewerOn = false; gotAny = false; lastSeq = 0;
+    sayOff();  // tell the other side right away instead of leaving it to the broker's will
+    clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
+    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0;
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
@@ -2467,28 +2472,29 @@ safe-buffer/index.js:
   stage.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(function () { fit(!current.trim()); }, 30); });
 
   /* ---- transport: all brokers at once, de-duplicated ---- */
-  var TT, TV;
+  var TT, TV, TE, myTopic;  // text, viewer presence, editor presence, this side's presence
   function open(role) {
     if (typeof mqtt === 'undefined' || !mqtt.connect) { setDots(false, 'Не завантажилась бібліотека зв\u2019язку (стара версія браузера?)'); return; }
-    TT = 'ltxt/' + code + '/t'; TV = 'ltxt/' + code + '/v';
+    TT = 'ltxt/' + code + '/t'; TV = 'ltxt/' + code + '/v'; TE = 'ltxt/' + code + '/e';
+    myTopic = role === 'view' ? TV : TE; var peerTopic = role === 'view' ? TE : TV;
     BROKERS.forEach(function (url) {
-      var opts = { clientId: 'lt' + Math.random().toString(16).slice(2, 10), clean: true, reconnectPeriod: 2000, connectTimeout: 8000, keepalive: 30 };
-      if (role === 'view') opts.will = { topic: TV, payload: 'off', retain: true, qos: 0 };
+      var opts = { clientId: 'lt' + Math.random().toString(16).slice(2, 10), clean: true, reconnectPeriod: 2000, connectTimeout: 8000, keepalive: 20 };
+      opts.will = { topic: myTopic, payload: 'off', retain: true, qos: 0 };
       var c;
       try { c = mqtt.connect(url, opts); } catch (e) { return; }
       clients.push(c);
       c.on('connect', function () {
-        if (role === 'view') { c.subscribe(TT); c.publish(TV, 'on', { retain: true }); }
-        else { c.subscribe(TV); sendNow(); }
+        c.subscribe(peerTopic); c.publish(myTopic, 'on', { retain: true });
+        if (role === 'view') c.subscribe(TT); else sendNow();
         refresh();
       });
-      c.on('close', refresh);
+      c.on('close', function () { peer[url] = false; refresh(); });
       c.on('error', function () {});
       c.on('message', function (topic, payload) {
         var s = payload.toString();
         if (role === 'view' && topic === TT) {
           try { var m = JSON.parse(s); if (typeof m.t === 'string' && m.s > lastSeq) { lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh(); } } catch (e) {}
-        } else if (role === 'edit' && topic === TV) { viewerOn = (s === 'on'); refresh(); }
+        } else if (topic === peerTopic) { peer[url] = (s === 'on'); refresh(); }
       });
     });
   }
@@ -2500,7 +2506,12 @@ safe-buffer/index.js:
   function queueSend() { if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); }
   $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); });
   $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); $('input').focus(); });
-  setInterval(function () { if (mode === 'edit') sendNow(); }, 5000);  // heal dropped messages
+  setInterval(function () {  // heal dropped messages and stale wills
+    if (!mode) return;
+    clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'on', { retain: true, qos: 0 }); } catch (e) {} } });
+    if (mode === 'edit') sendNow();
+  }, 5000);
+  window.addEventListener('pagehide', function () { if (mode) sayOff(); });
 
   function startViewer() {
     mode = 'view'; code = randCode(); show('pair'); keepAwake();
