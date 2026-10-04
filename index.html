@@ -27,18 +27,20 @@
   .status { display:flex; align-items:center; gap:6px; font-size:14px; color:var(--muted); }
   .dot { width:10px; height:10px; border-radius:50%; background: var(--bad); }
   .dot.ok { background: var(--ok); }
+  .bar .clear { border:1px solid var(--line); background:var(--bg); color:var(--fg); font-size:15px; padding:6px 12px; border-radius:10px; }
   .link { border:0; background:none; color:var(--accent); font-size:15px; padding:6px 4px; }
   #editor textarea { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; }
   #viewer { background:#000; color:#fff; position:relative; }
-  #stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; align-items:center; justify-content:center; text-align:center; }
-  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:normal; color:#fff; }
-  #shown.wrapany { overflow-wrap:anywhere; }
-  #shown.empty { color:#57534e; font-weight:500; }
+  #stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; flex-direction:column; text-align:center; }
+  #stage.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%); mask-image: linear-gradient(to bottom, transparent 0, #000 18%); }
+  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:break-word; color:#fff; }
+  #shown.empty { color:#57534e; font-weight:500; margin:auto 0; }
   #shown.mirror { transform: scaleX(-1); }
   #vctl { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#1c1917; color:#fafaf9; border-top:1px solid #44403c; flex-wrap:wrap; }
   #vctl.hide { display:none; }
   #vctl label { display:flex; align-items:center; gap:6px; font-size:14px; }
   #vctl input[type=range] { flex:1; min-width:120px; }
+  #vctl output { min-width:52px; font-size:14px; font-variant-numeric:tabular-nums; }
   #vctl button { border:1px solid #57534e; background:#292524; color:#fafaf9; padding:8px 12px; border-radius:10px; font-size:14px; }
   #vstat { position:absolute; top:8px; left:12px; margin-top: env(safe-area-inset-top,0px); }
   #vstat .status { color:#a8a29e; }
@@ -74,6 +76,7 @@
 <section id="editor" class="screen">
   <div class="bar">
     <button class="link" data-back>← Вийти</button>
+    <button class="clear" id="clear">Очистити екран</button>
     <span class="grow"></span>
     <div class="status"><span class="dot" id="eDot"></span><span id="eStat">Підключення…</span></div>
   </div>
@@ -85,8 +88,9 @@
   <div id="stage"><p id="shown" class="empty">Очікування тексту…</p></div>
   <div id="vctl">
     <button data-back>← Вийти</button>
-    <label><input type="checkbox" id="auto" checked> Авто-розмір</label>
-    <input type="range" id="size" min="20" max="400" value="120" disabled>
+    <label for="size">Розмір</label>
+    <input type="range" id="size" min="20" max="400" value="120">
+    <output id="sizeOut">120px</output>
     <label><input type="checkbox" id="mir"> Дзеркало</label>
     <button id="full">Повний екран</button>
   </div>
@@ -2447,20 +2451,17 @@ safe-buffer/index.js:
 
   /* ---- viewer rendering ---- */
   var shown = $('shown'), stage = $('stage'), current = '';
+  try { var saved = +localStorage.getItem('lt_size'); if (saved >= 20 && saved <= 400) $('size').value = saved; } catch (e) {}
   function fit(empty) {
-    if (empty) { shown.style.fontSize = '28px'; return; }
-    if (!$('auto').checked) { shown.classList.add('wrapany'); shown.style.fontSize = $('size').value + 'px'; return; }
-    shown.classList.remove('wrapany');  // whole words only: the font is limited by the longest word's width too
-    var lo = 16, hi = 600, cs = getComputedStyle(stage);
-    var maxH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-    while (hi - lo > 2) { var mid = (lo + hi) >> 1; shown.style.fontSize = mid + 'px'; if (shown.scrollHeight <= maxH && shown.scrollWidth <= shown.clientWidth + 1) lo = mid; else hi = mid; }
-    shown.style.fontSize = lo + 'px';
-    if (shown.scrollWidth > shown.clientWidth + 1) shown.classList.add('wrapany');  // a word too long even at the minimum size
+    var px = empty ? 28 : +$('size').value;
+    shown.style.fontSize = px + 'px';
+    $('sizeOut').textContent = $('size').value + 'px';
+    stage.scrollTop = stage.scrollHeight;  // once the screen is full, older lines move up out of view
+    stage.classList.toggle('scrolled', stage.scrollTop > 0);
   }
   function render(t) { current = t; var empty = !t.trim(); shown.textContent = empty ? 'Очікування тексту…' : t; shown.classList.toggle('empty', empty); fit(empty); }
   window.addEventListener('resize', function () { if (mode === 'view') fit(!current.trim()); });
-  $('auto').addEventListener('change', function () { $('size').disabled = this.checked; if (!this.checked) $('size').value = parseFloat(shown.style.fontSize) || 120; fit(!current.trim()); });
-  $('size').addEventListener('input', function () { fit(!current.trim()); });
+  $('size').addEventListener('input', function () { try { localStorage.setItem('lt_size', this.value); } catch (e) {} fit(!current.trim()); });
   $('mir').addEventListener('change', function () { shown.classList.toggle('mirror', this.checked); });
   $('full').addEventListener('click', function () { var el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el); } catch (e) {} });
   stage.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(function () { fit(!current.trim()); }, 30); });
@@ -2486,7 +2487,7 @@ safe-buffer/index.js:
       c.on('message', function (topic, payload) {
         var s = payload.toString();
         if (role === 'view' && topic === TT) {
-          try { var m = JSON.parse(s); if (typeof m.t === 'string' && m.s > lastSeq) { lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(0, 5000)); refresh(); } } catch (e) {}
+          try { var m = JSON.parse(s); if (typeof m.t === 'string' && m.s > lastSeq) { lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh(); } } catch (e) {}
         } else if (role === 'edit' && topic === TV) { viewerOn = (s === 'on'); refresh(); }
       });
     });
@@ -2496,8 +2497,10 @@ safe-buffer/index.js:
     var msg = JSON.stringify({ s: Date.now(), t: lastText });
     clients.forEach(function (c) { if (c.connected) { try { c.publish(TT, msg, { retain: true, qos: 0 }); } catch (e) {} } });
   }
-  $('input').addEventListener('input', function () { lastText = this.value.slice(0, 5000); if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); });
-  setInterval(function () { if (mode === 'edit' && lastText) sendNow(); }, 5000);  // heal dropped messages
+  function queueSend() { if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); }
+  $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); });
+  $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); $('input').focus(); });
+  setInterval(function () { if (mode === 'edit') sendNow(); }, 5000);  // heal dropped messages
 
   function startViewer() {
     mode = 'view'; code = randCode(); show('pair'); keepAwake();
