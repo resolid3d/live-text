@@ -56,7 +56,7 @@
   .swatch[data-theme=gb] { background:#000; color:#4ade80; }
 
   /* phone: phrases */
-  #phrases { display:flex; gap:8px; padding:8px 12px; overflow-x:auto; border-bottom:1px solid var(--line); background:var(--card); scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  #phrases { display:grid; gap:8px; padding:8px 12px; overflow-x:auto; border-bottom:1px solid var(--line); background:var(--card); scrollbar-width:none; -webkit-overflow-scrolling:touch; }
   #phrases::-webkit-scrollbar { display:none; }
   #phrases .pill { flex:none; }
   #phrases .edit { color:var(--accent); }
@@ -2643,6 +2643,7 @@ safe-buffer/index.js:
     var e = document.createElement('button'); e.className = 'pill edit'; e.textContent = '✎ Фрази';
     e.addEventListener('click', function () { $('peText').value = phrases.join('\n'); $('phraseEdit').classList.add('open'); $('peText').focus(); });
     box.insertBefore(e, box.firstChild);  // first, so it is visible without scrolling the row
+    box.style.gridTemplateColumns = 'repeat(' + Math.ceil(box.children.length / 2) + ', max-content)';  // two rows, read left to right
   }
   function closePE() { $('phraseEdit').classList.remove('open'); }
   $('peCancel').addEventListener('click', closePE);
