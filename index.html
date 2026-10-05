@@ -62,23 +62,25 @@
   #phrases::-webkit-scrollbar { display:none; }
   #phrases .pill { flex:none; }
   #phrases .edit { color:var(--accent); }
-  #editor textarea#input { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; }
+  #editor textarea#input { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; border-left:6px solid transparent; }
   #phraseEdit { position:fixed; inset:0; z-index:20; display:none; flex-direction:column; background:var(--bg); padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
   #phraseEdit.open { display:flex; }
   #phraseEdit .hint { padding:10px 14px 0; font-size:14px; color:var(--muted); }
   #phraseEdit textarea { flex:1; margin:10px 12px; border:1px solid var(--line); border-radius:12px; padding:12px; font-size:18px; line-height:1.5; background:var(--card); color:var(--fg); font-family:inherit; resize:none; outline:0; }
 
   /* screen */
-  #viewer { position:relative; --tfg:#fff; --tbg:#000; --tdim:#57534e; background:var(--tbg); color:var(--tfg); }
+  #viewer { position:relative; --tfg:#fff; --tbg:#000; --tdim:#57534e; --tdiv:#44403c; background:var(--tbg); color:var(--tfg); }
   #viewer[data-theme=yb] { --tfg:#facc15; }
   #viewer[data-theme=gb] { --tfg:#4ade80; }
-  #viewer[data-theme=bw] { --tfg:#000; --tbg:#fff; --tdim:#a8a29e; }
-  #stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; flex-direction:column; text-align:center; }
-  #viewer[data-align=left] #stage { text-align:left; }
-  #stage.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%); mask-image: linear-gradient(to bottom, transparent 0, #000 18%); }
-  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:break-word; color:var(--tfg); }
-  #shown.empty { color:var(--tdim); font-weight:500; margin:auto 0; text-align:center; }
-  #viewer[data-mirror="1"] #shown { transform: scaleX(-1); }
+  #viewer[data-theme=bw] { --tfg:#000; --tbg:#fff; --tdim:#a8a29e; --tdiv:#d6d3d1; }
+  #panes { flex:1; min-height:0; display:grid; gap:2px; background:var(--tdiv); }  /* the gap is the divider between phones */
+  .pane { min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--tbg); }
+  .stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; flex-direction:column; text-align:center; }
+  #viewer[data-align=left] .stage { text-align:left; }
+  .stage.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%); mask-image: linear-gradient(to bottom, transparent 0, #000 18%); }
+  .shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:break-word; color:var(--tfg); }
+  .shown.empty { color:var(--tdim); font-weight:500; margin:auto 0; text-align:center; }
+  #viewer[data-mirror="1"] .shown { transform: scaleX(-1); }
   #vctl { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#1c1917; color:#fafaf9; border-top:1px solid #44403c; flex-wrap:wrap; }
   #vctl.hide { display:none; }
   #vctl label { display:flex; align-items:center; gap:6px; font-size:14px; }
@@ -156,7 +158,7 @@
 
 <section id="viewer" class="screen" data-theme="wb" data-align="center" data-mirror="0">
   <div id="vstat"><span class="status"><span class="dot" id="vDot"></span><span id="vStat">Очікую…</span></span></div>
-  <div id="stage"><p id="shown" class="empty">Очікування тексту…</p></div>
+  <div id="panes"></div>
   <div id="vctl">
     <button data-back>← Вийти</button>
     <label for="size">Розмір</label>
@@ -2498,15 +2500,18 @@ safe-buffer/index.js:
   var $ = function (id) { return document.getElementById(id); };
   var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
   var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
-  var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, gotAny = false;
+  var clients = [], mode = null, code = null, lastText = '', wake = null;
   var gen = 0;  // bumps on every start/exit, so late async results of an old session are dropped
-  var peer = {};  // broker url -> whether the other side is present there ('on'/'off' presence, with a will for vanishing)
-  var peerSeen = false;  // viewer: the phone has been here
+  var peer = {};  // phone: broker url -> whether the screen is present there ('on'/'off' presence, with a will for vanishing)
+  var peerSeen = false;  // screen: a phone has been here
+  var myId = null, mySlot = null;  // phone: its own id among several phones, and its colour slot on the screen
+  var writers = {}, slots = {};  // screen: phone id -> { text, seq, pres: {broker url: on}, slot }; id -> colour slot
 
   /* ---- storage ---- */
   function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; }
   function store(kind) { try { return kind === 'edit' ? localStorage : sessionStorage; } catch (e) { return null; } }
-  function saveSession() { var st = store(mode); if (st && code) try { st.setItem('lt_' + mode, JSON.stringify({ code: code, text: lastText, at: Date.now() })); } catch (e) {} }
+  function saveSession() { var st = store(mode); if (st && code) try { st.setItem('lt_' + mode, JSON.stringify({ code: code, text: lastText, id: myId, slots: slots, at: Date.now() })); } catch (e) {} }
+  function newId() { var r = new Uint8Array(6), s = ''; crypto.getRandomValues(r); for (var i = 0; i < 6; i++) s += (r[i] < 16 ? '0' : '') + r[i].toString(16); return s; }
   function loadSession(kind) { var st = store(kind); try { var v = st && JSON.parse(st.getItem('lt_' + kind)); if (v && /^[a-z0-9]{8}$/.test(v.code) && Date.now() - v.at < 12 * 3600e3) return v; } catch (e) {} return null; }
   function dropSession() { ['edit', 'view'].forEach(function (k) { var st = store(k); try { st && st.removeItem('lt_' + k); } catch (e) {} }); }
 
@@ -2562,7 +2567,17 @@ safe-buffer/index.js:
     $('rMirror').classList.toggle('on', set.mirror);
     $('rSize').textContent = (mode !== 'edit' || setKnown) ? set.size : '—';
     each('#remote button', function (b) { b.disabled = mode === 'edit' && !setKnown; });
-    if (mode === 'view') fit(!current.trim());
+    if (mode === 'view') renderPanes();
+    if (mode === 'edit') $('input').style.borderLeftColor = mySlot == null ? 'transparent' : colorFor(mySlot);
+  }
+  /* each phone gets its own colour: the theme's colour first, then distinct ones */
+  var PAL_DARK = ['#ffffff', '#facc15', '#4ade80', '#38bdf8', '#f472b6', '#fb923c'];
+  var PAL_LIGHT = ['#000000', '#1d4ed8', '#b91c1c', '#15803d', '#7e22ce', '#c2410c'];
+  var FIRST = { wb: '#ffffff', yb: '#facc15', gb: '#4ade80', bw: '#000000' };
+  function colorFor(slot) {
+    var pal = set.theme === 'bw' ? PAL_LIGHT : PAL_DARK, first = FIRST[set.theme];
+    var list = [first].concat(pal.filter(function (c) { return c !== first; }));
+    return list[slot % list.length];
   }
   function changeSet(patch) {
     if (mode === 'edit' && !setKnown) return;
@@ -2574,6 +2589,8 @@ safe-buffer/index.js:
   }
 
   function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
+  function writerOn(w) { for (var k in w.pres) if (w.pres[k]) return true; return false; }
+  function phonesOn() { var n = 0; for (var id in writers) if (writerOn(writers[id])) n++; return n; }
   function clearHash() { try { if (location.hash) history.replaceState(null, '', location.pathname + location.search); } catch (e) { try { location.hash = ''; } catch (e2) {} } }
   function show(id) { ['start','pair','join','editor','viewer'].forEach(function (s) { $(s).classList.toggle('on', s === id); }); }
   function setDots(ok, t) { ['pDot','eDot','vDot'].forEach(function (d) { $(d).classList.toggle('ok', ok); }); $('pStat').textContent = t; $('eStat').textContent = t; $('vStat').textContent = t; }
@@ -2584,9 +2601,10 @@ safe-buffer/index.js:
   function refresh() {
     var n = online();
     if (mode === 'view') {
-      if (peerOn()) peerSeen = true;
+      var p = phonesOn();
+      if (p) peerSeen = true;
       if (!n) setDots(false, 'Немає зв’язку з сервером…');
-      else if (peerOn()) setDots(true, 'Телефон підключено');
+      else if (p) setDots(true, (p === 1 ? 'Телефон підключено' : 'Телефонів підключено: ' + p) + ' · код ' + code);
       else if (peerSeen) setDots(false, 'Телефон не на зв’язку, чекаю · код ' + code);
       else setDots(true, 'Готово, чекаю на телефон');
     } else if (mode === 'edit') {
@@ -2596,10 +2614,12 @@ safe-buffer/index.js:
   }
   function sayOff(p) { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, p, { retain: true, qos: 0 }); } catch (e) {} } }); }
   function cleanup() {
-    sayOff('bye');  // an explicit exit: the screen goes back to the start (a phone that just vanished is waited for)
+    sayOff('bye');  // an explicit exit: this phone's part leaves the screen (a phone that just vanished is waited for)
+    if (mode === 'edit') clients.forEach(function (c) { if (c.connected) { try { c.publish(myText, '', { retain: true, qos: 0 }); } catch (e) {} } });  // drop the retained text
     dropSession(); if (mode === 'edit') { $('input').value = ''; lastText = ''; set = clean(DEF); setKnown = false; }
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
-    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false; key = null; room = null; gen++;
+    clients = []; mode = null; code = null; peer = {}; peerSeen = false; key = null; room = null; gen++;
+    writers = {}; slots = {}; myId = null; mySlot = null; renderPanes();
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
@@ -2607,19 +2627,51 @@ safe-buffer/index.js:
   each('[data-back]', function (b) { b.addEventListener('click', cleanup); });
 
   /* ---- viewer rendering ---- */
-  var shown = $('shown'), stage = $('stage'), current = '';
-  function fit(empty) {
-    shown.style.fontSize = (empty ? 28 : set.size) + 'px';
-    stage.scrollTop = stage.scrollHeight;  // once the screen is full, older lines move up out of view
-    stage.classList.toggle('scrolled', stage.scrollTop > 0);
+  /* one part of the screen per phone that has something written; the parts share the screen */
+  var panes = $('panes'), paneEls = {};
+  function makePane(id) {
+    var el = document.createElement('div'); el.className = 'pane';
+    el.innerHTML = '<div class="stage"><p class="shown"></p></div>';
+    paneEls[id] = el; return el;
   }
-  function render(t) { current = t; var empty = !t.trim(); shown.textContent = empty ? 'Очікування тексту…' : t; shown.classList.toggle('empty', empty); fit(empty); }
-  window.addEventListener('resize', function () { if (mode === 'view') fit(!current.trim()); });
+  function renderPanes() {
+    var list = Object.keys(writers).map(function (id) { return writers[id]; })
+      .filter(function (w) { return w.text.trim(); }).sort(function (a, b) { return a.slot - b.slot; });
+    var want = list.length ? list.map(function (w) { return w.id; }) : ['_wait'];
+    Object.keys(paneEls).forEach(function (id) { if (want.indexOf(id) < 0) { paneEls[id].remove(); delete paneEls[id]; } });
+    want.forEach(function (id, i) {
+      var el = paneEls[id] || makePane(id), p = el.querySelector('.shown'), w = writers[id];
+      if (panes.children[i] !== el) panes.insertBefore(el, panes.children[i] || null);
+      var t = w ? w.text : 'Очікування тексту…';
+      if (p.textContent !== t) p.textContent = t;
+      p.classList.toggle('empty', !w);
+      p.style.color = w ? colorFor(w.slot) : '';
+      p.style.fontSize = (w ? set.size : 28) + 'px';
+      var st = el.firstChild;
+      st.scrollTop = st.scrollHeight;  // once a part is full, its older lines move up out of view
+      st.classList.toggle('scrolled', st.scrollTop > 0);
+    });
+    var n = want.length, wide = panes.clientWidth >= panes.clientHeight;
+    var cols = n === 1 ? 1 : n === 2 ? (wide ? 2 : 1) : Math.ceil(Math.sqrt(n));
+    panes.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+    panes.style.gridTemplateRows = 'repeat(' + Math.ceil(n / cols) + ', minmax(0, 1fr))';
+  }
+  window.addEventListener('resize', function () { if (mode === 'view') renderPanes(); });
+  function writer(id) {
+    var w = writers[id];
+    if (!w) {
+      var used = Object.keys(writers).map(function (k) { return writers[k].slot; }), s = slots[id];
+      if (s == null || used.indexOf(s) >= 0) { s = 0; while (used.indexOf(s) >= 0) s++; }  // the lowest free colour
+      slots[id] = s; w = writers[id] = { id: id, text: '', seq: 0, pres: {}, slot: s };
+      saveSession(); pub(TA, slots);
+    }
+    return w;
+  }
   $('size').addEventListener('input', function () { changeSet({ size: +this.value }); });
   $('vAlign').addEventListener('click', function () { changeSet({ align: set.align === 'left' ? 'center' : 'left' }); });
   $('vMirror').addEventListener('click', function () { changeSet({ mirror: !set.mirror }); });
   $('full').addEventListener('click', function () { var el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el); } catch (e) {} });
-  stage.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(function () { fit(!current.trim()); }, 30); });
+  panes.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(renderPanes, 30); });
 
   /* ---- phone: screen remote ---- */
   each('.swatch', function (b) { b.addEventListener('click', function () { changeSet({ theme: b.dataset.theme }); }); });
@@ -2657,7 +2709,8 @@ safe-buffer/index.js:
   renderPhrases();
 
   /* ---- transport: all brokers at once, de-duplicated ---- */
-  var TT, TS, TV, TE, myTopic, peerTopic;  // text, settings, viewer presence, editor presence
+  // text and presence are per phone (<base>/t/<id>, <base>/e/<id>); settings, screen presence and colour slots are shared
+  var TT, TS, TV, TE, TA, myTopic, myText;
   function pub(topic, obj) {
     var g = gen;
     seal(obj).then(function (p) {
@@ -2668,8 +2721,9 @@ safe-buffer/index.js:
   function open(role) {
     if (typeof mqtt === 'undefined' || !mqtt.connect) { setDots(false, 'Не завантажилась бібліотека зв’язку (стара версія браузера?)'); return; }
     var base = 'ltxt2/' + room, g = gen;
-    TT = base + '/t'; TS = base + '/s'; TV = base + '/v'; TE = base + '/e';
-    myTopic = role === 'view' ? TV : TE; peerTopic = role === 'view' ? TE : TV;
+    TT = base + '/t/'; TS = base + '/s'; TV = base + '/v'; TE = base + '/e/'; TA = base + '/a';
+    myTopic = role === 'view' ? TV : TE + myId; myText = TT + myId;
+    var subs = role === 'view' ? [TE + '+', TT + '+', TS] : [TV, TS, TA];
     BROKERS.forEach(function (url) {
       var opts = { clientId: 'lt' + Math.random().toString(16).slice(2, 10), clean: true, reconnectPeriod: 2000, connectTimeout: 8000, keepalive: 20 };
       opts.will = { topic: myTopic, payload: 'off', retain: true, qos: 0 };
@@ -2677,22 +2731,41 @@ safe-buffer/index.js:
       try { c = mqtt.connect(url, opts); } catch (e) { return; }
       clients.push(c);
       c.on('connect', function () {
-        c.subscribe([peerTopic, TS].concat(role === 'view' ? [TT] : []));
+        c.subscribe(subs);
         c.publish(myTopic, 'on', { retain: true });
-        if (role === 'view') pub(TS, set); else sendNow();
+        if (role === 'view') { pub(TS, set); pub(TA, slots); } else sendNow();
         refresh();
       });
-      c.on('close', function () { peer[url] = false; refresh(); });
+      c.on('close', function () { peer[url] = false; for (var id in writers) writers[id].pres[url] = false; refresh(); });
       c.on('error', function () {});
       c.on('message', function (topic, payload) {
         var s = payload.toString();
-        if (topic === peerTopic) {
-          if (s === 'bye' && role === 'view' && peerSeen) { cleanup(); return; }  // the phone left: back to the start screen
+        if (role === 'edit' && topic === TV) {
           peer[url] = (s === 'on'); refresh();
-        } else if (topic === TT && role === 'view') {
+        } else if (role === 'view' && topic.indexOf(TE) === 0) {
+          var id = topic.slice(TE.length);
+          if (s === 'bye') {  // that phone left: its part goes; the screen goes back to the start when the last one leaves
+            if (!writers[id]) return;
+            delete writers[id]; delete slots[id]; saveSession(); pub(TA, slots); renderPanes(); refresh();
+            if (peerSeen && !Object.keys(writers).length) cleanup();
+            return;
+          }
+          writer(id).pres[url] = (s === 'on'); refresh();
+        } else if (role === 'view' && topic.indexOf(TT) === 0) {
+          var tid = topic.slice(TT.length);
+          if (!s) return;  // a cleared retained text
           unseal(s).then(function (m) {
-            if (g !== gen || !m || typeof m.t !== 'string' || !(m.s > lastSeq)) return;
-            lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh();
+            if (g !== gen || !m || typeof m.t !== 'string') return;
+            var w = writer(tid);
+            if (!(m.s > w.seq)) return;
+            w.seq = m.s; w.text = m.t.slice(-5000);
+            if (!$('viewer').classList.contains('on')) show('viewer');
+            renderPanes(); refresh();
+          });
+        } else if (role === 'edit' && topic === TA) {
+          unseal(s).then(function (m) {
+            if (g !== gen || !m) return;
+            mySlot = typeof m[myId] === 'number' ? m[myId] : null; applySet();
           });
         } else if (topic === TS) {
           unseal(s).then(function (m) {
@@ -2709,7 +2782,7 @@ safe-buffer/index.js:
     });
   }
   var sendT = null;
-  function sendNow() { if (key) pub(TT, { s: Date.now(), t: lastText }); }
+  function sendNow() { if (key) pub(myText, { s: Date.now(), t: lastText }); }
   function queueSend() { if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); }
   $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); saveSession(); });
   $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); saveSession(); $('input').focus(); });
@@ -2739,7 +2812,8 @@ safe-buffer/index.js:
     }).catch(function () { if (g === gen) setDots(false, 'Цей браузер не підтримує шифрування (потрібна сторінка по https)'); });
   }
   function startViewer(resume) {
-    mode = 'view'; code = resume || randCode(); saveSession(); show('pair'); keepAwake();
+    writers = {}; slots = (resume && resume.slots) || {};
+    mode = 'view'; code = resume ? resume.code : randCode(); saveSession(); show('pair'); keepAwake();
     set = loadSet(); applySet();
     $('codeText').textContent = code;
     var url = location.origin + location.pathname + '#' + code;
@@ -2748,10 +2822,11 @@ safe-buffer/index.js:
     try { var q = qrcode(0, 'M'); q.addData(url); q.make(); $('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }); } catch (e) { $('qr').textContent = url; }
     connect('view');
   }
-  function startEditor(c, text) {
+  function startEditor(c, text, id) {
     c = c.trim().toLowerCase();
     if (!/^[a-z0-9]{8}$/.test(c)) { alert('Код має містити 8 символів'); return; }
     if (text != null) { lastText = text; $('input').value = text; }
+    myId = id || newId(); mySlot = null;
     code = c; mode = 'edit'; show('editor'); keepAwake(); saveSession();
     set = clean(DEF); setKnown = false; applySet();
     clearHash();
@@ -2766,9 +2841,10 @@ safe-buffer/index.js:
 
   var h = (location.hash || '').replace('#', '').trim();
   var se = loadSession('edit'), sv = loadSession('view');
-  if (/^[a-z0-9]{8}$/i.test(h)) startEditor(h, se && se.code === h.toLowerCase() ? se.text : '');
-  else if (sv) startViewer(sv.code);   // the screen was reloaded: same code
-  else if (se) startEditor(se.code, se.text);  // the phone's tab was discarded while asleep: resume
+  var same = se && se.code === h.toLowerCase();  // the same phone scanning the same code again keeps its part of the screen
+  if (/^[a-z0-9]{8}$/i.test(h)) startEditor(h, same ? se.text : '', same ? se.id : null);
+  else if (sv) startViewer(sv);   // the screen was reloaded: same code
+  else if (se) startEditor(se.code, se.text, se.id);  // the phone's tab was discarded while asleep: resume
 })();
 </script>
 </body>
