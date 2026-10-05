@@ -4,11 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Великий текст наживо</title>
+<meta name="description" content="Пишіть на телефоні — великий текст одразу на екрані. Без акаунтів, через QR-код.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0c0a09">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Великий текст">
 <style>
   :root { --bg:#f5f5f4; --fg:#1c1917; --muted:#78716c; --card:#fff; --line:#d6d3d1; --accent:#2563eb; --ok:#16a34a; --bad:#dc2626; }
   @media (prefers-color-scheme: dark) { :root { --bg:#0c0a09; --fg:#fafaf9; --muted:#a8a29e; --card:#1c1917; --line:#44403c; --accent:#3b82f6; --ok:#4ade80; --bad:#f87171; } }
   * { box-sizing: border-box; }
-  button { touch-action: manipulation; -webkit-appearance: none; cursor: pointer; }
+  button { touch-action: manipulation; -webkit-appearance: none; cursor: pointer; font-family: inherit; }
   html, body { height: 100%; margin: 0; }
   body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; padding-top: env(safe-area-inset-top,0px); padding-bottom: env(safe-area-inset-bottom,0px); -webkit-text-size-adjust: 100%; }
   .screen { display: none; height: 100%; flex-direction: column; }
@@ -22,28 +30,64 @@
   #qr { background: #fff; padding: 14px; border-radius: 16px; line-height: 0; }
   #qr svg, #qr img { width: min(70vw, 300px); height: auto; display: block; }
   .codeText { font-size: 28px; font-weight: 700; letter-spacing: 4px; font-family: ui-monospace, Menlo, monospace; }
-  .bar { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--card); }
+  .lock { font-size: 13px; color: var(--muted); }
+  .bar { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:1px solid var(--line); background:var(--card); }
   .grow { flex: 1; }
-  .status { display:flex; align-items:center; gap:6px; font-size:14px; color:var(--muted); }
-  .dot { width:10px; height:10px; border-radius:50%; background: var(--bad); }
+  .status { display:flex; align-items:center; gap:6px; font-size:14px; color:var(--muted); min-width:0; }
+  .status span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .dot { flex:none; width:10px; height:10px; border-radius:50%; background: var(--bad); }
   .dot.ok { background: var(--ok); }
-  .bar .clear { border:1px solid var(--line); background:var(--bg); color:var(--fg); font-size:15px; padding:6px 12px; border-radius:10px; }
-  .link { border:0; background:none; color:var(--accent); font-size:15px; padding:6px 4px; }
-  #editor textarea { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; }
-  #viewer { background:#000; color:#fff; position:relative; }
+  .link { border:0; background:none; color:var(--accent); font-size:15px; padding:6px 4px; white-space:nowrap; }
+  .pill { border:1px solid var(--line); background:var(--bg); color:var(--fg); font-size:15px; padding:6px 12px; border-radius:10px; white-space:nowrap; }
+  @media (max-width: 480px) { #editor .bar { flex-wrap:wrap; row-gap:4px; } #editor .bar .grow { display:none; } #editor .bar .status { flex-basis:100%; font-size:13px; } }
+  .pill.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+
+  /* phone: screen controls */
+  #remote { display:none; flex-wrap:wrap; align-items:center; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); background:var(--card); }
+  #remote.open { display:flex; }
+  #remote .sz { display:flex; align-items:center; gap:6px; }
+  #remote .sz output { min-width:46px; text-align:center; font-variant-numeric:tabular-nums; font-size:15px; }
+  #remote .sz .pill { min-width:44px; font-weight:700; }
+  .swatch { width:36px; height:32px; border-radius:9px; border:2px solid var(--line); font-weight:800; font-size:15px; padding:0; }
+  .swatch.on { border-color:var(--accent); box-shadow:0 0 0 2px var(--accent); }
+  .swatch[data-theme=wb] { background:#000; color:#fff; }
+  .swatch[data-theme=yb] { background:#000; color:#facc15; }
+  .swatch[data-theme=bw] { background:#fff; color:#000; }
+  .swatch[data-theme=gb] { background:#000; color:#4ade80; }
+
+  /* phone: phrases */
+  #phrases { display:flex; gap:8px; padding:8px 12px; overflow-x:auto; border-bottom:1px solid var(--line); background:var(--card); scrollbar-width:none; -webkit-overflow-scrolling:touch; }
+  #phrases::-webkit-scrollbar { display:none; }
+  #phrases .pill { flex:none; }
+  #phrases .edit { color:var(--accent); }
+  #editor textarea#input { flex:1; width:100%; border:0; outline:0; resize:none; padding:16px; font-size:22px; line-height:1.4; background:var(--bg); color:var(--fg); font-family:inherit; }
+  #phraseEdit { position:fixed; inset:0; z-index:20; display:none; flex-direction:column; background:var(--bg); padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); }
+  #phraseEdit.open { display:flex; }
+  #phraseEdit .hint { padding:10px 14px 0; font-size:14px; color:var(--muted); }
+  #phraseEdit textarea { flex:1; margin:10px 12px; border:1px solid var(--line); border-radius:12px; padding:12px; font-size:18px; line-height:1.5; background:var(--card); color:var(--fg); font-family:inherit; resize:none; outline:0; }
+
+  /* screen */
+  #viewer { position:relative; --tfg:#fff; --tbg:#000; --tdim:#57534e; background:var(--tbg); color:var(--tfg); }
+  #viewer[data-theme=yb] { --tfg:#facc15; }
+  #viewer[data-theme=gb] { --tfg:#4ade80; }
+  #viewer[data-theme=bw] { --tfg:#000; --tbg:#fff; --tdim:#a8a29e; }
   #stage { flex:1; min-height:0; overflow:hidden; padding:16px 20px; display:flex; flex-direction:column; text-align:center; }
+  #viewer[data-align=left] #stage { text-align:left; }
   #stage.scrolled { -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18%); mask-image: linear-gradient(to bottom, transparent 0, #000 18%); }
-  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:break-word; color:#fff; }
-  #shown.empty { color:#57534e; font-weight:500; margin:auto 0; }
-  #shown.mirror { transform: scaleX(-1); }
-  #vctl { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#1c1917; color:#fafaf9; border-top:1px solid #44403c; flex-wrap:wrap; }
+  #shown { margin:0; width:100%; max-width:none; font-weight:700; line-height:1.12; white-space:pre-wrap; overflow-wrap:break-word; color:var(--tfg); }
+  #shown.empty { color:var(--tdim); font-weight:500; margin:auto 0; text-align:center; }
+  #viewer[data-mirror="1"] #shown { transform: scaleX(-1); }
+  #vctl { display:flex; align-items:center; gap:10px; padding:10px 14px; background:#1c1917; color:#fafaf9; border-top:1px solid #44403c; flex-wrap:wrap; }
   #vctl.hide { display:none; }
   #vctl label { display:flex; align-items:center; gap:6px; font-size:14px; }
   #vctl input[type=range] { flex:1; min-width:120px; }
   #vctl output { min-width:52px; font-size:14px; font-variant-numeric:tabular-nums; }
   #vctl button { border:1px solid #57534e; background:#292524; color:#fafaf9; padding:8px 12px; border-radius:10px; font-size:14px; }
+  #vctl .swatch { border-color:#57534e; padding:0; }
+  #vctl .swatch.on { border-color:#3b82f6; box-shadow:0 0 0 2px #3b82f6; }
   #vstat { position:absolute; top:8px; left:12px; margin-top: env(safe-area-inset-top,0px); }
   #vstat .status { color:#a8a29e; }
+  #viewer[data-theme=bw] #vstat .status { color:#57534e; }
 </style>
 </head>
 <body>
@@ -55,6 +99,7 @@
   <p>Без акаунтів. На пристрої, де буде великий текст, оберіть «Екран» і покажіть QR-код. На другому пристрої відскануйте його камерою й пишіть. Працює через інтернет, навіть у різних мережах.</p>
   <button class="btn primary" id="btnView">📺 Екран (покаже QR)</button>
   <button class="btn" id="btnEdit">✍️ Пишу (ввести код)</button>
+  <p class="lock">🔒 Текст шифрується на телефоні й розшифровується лише на екрані.</p>
 </section>
 
 <section id="pair" class="screen">
@@ -76,22 +121,53 @@
 <section id="editor" class="screen">
   <div class="bar">
     <button class="link" data-back>← Вийти</button>
-    <button class="clear" id="clear">Очистити екран</button>
+    <button class="pill" id="clear">Очистити</button>
+    <button class="pill" id="remoteBtn" aria-expanded="false">⚙ Екран</button>
     <span class="grow"></span>
     <div class="status"><span class="dot" id="eDot"></span><span id="eStat">Підключення…</span></div>
   </div>
+  <div id="remote">
+    <div class="sz"><button class="pill" id="rMinus" aria-label="Менший шрифт">A−</button><output id="rSize">120</output><button class="pill" id="rPlus" aria-label="Більший шрифт">A+</button></div>
+    <span class="themes" style="display:flex;gap:6px">
+      <button class="swatch" data-theme="wb" aria-label="Білий на чорному">A</button>
+      <button class="swatch" data-theme="yb" aria-label="Жовтий на чорному">A</button>
+      <button class="swatch" data-theme="gb" aria-label="Зелений на чорному">A</button>
+      <button class="swatch" data-theme="bw" aria-label="Чорний на білому">A</button>
+    </span>
+    <button class="pill" id="rAlign">По центру</button>
+    <button class="pill" id="rMirror">Дзеркало</button>
+  </div>
+  <div id="phrases"></div>
   <textarea id="input" placeholder="Пишіть тут…"></textarea>
 </section>
 
-<section id="viewer" class="screen">
+<div id="phraseEdit" role="dialog" aria-label="Фрази">
+  <div class="bar">
+    <button class="link" id="peCancel">Скасувати</button>
+    <span class="grow" style="text-align:center;font-weight:600">Фрази</span>
+    <button class="pill on" id="peSave">Зберегти</button>
+  </div>
+  <div class="hint">Одна фраза — один рядок. Натискання на фразу показує її на екрані.</div>
+  <textarea id="peText" autocomplete="off"></textarea>
+  <div style="padding:0 12px 12px"><button class="link" id="peReset">Повернути стандартні</button></div>
+</div>
+
+<section id="viewer" class="screen" data-theme="wb" data-align="center" data-mirror="0">
   <div id="vstat"><span class="status"><span class="dot" id="vDot"></span><span id="vStat">Очікую…</span></span></div>
   <div id="stage"><p id="shown" class="empty">Очікування тексту…</p></div>
   <div id="vctl">
     <button data-back>← Вийти</button>
     <label for="size">Розмір</label>
-    <input type="range" id="size" min="20" max="400" value="120">
+    <input type="range" id="size" min="20" max="600" value="120">
     <output id="sizeOut">120px</output>
-    <label><input type="checkbox" id="mir"> Дзеркало</label>
+    <span style="display:flex;gap:6px">
+      <button class="swatch" data-theme="wb" aria-label="Білий на чорному">A</button>
+      <button class="swatch" data-theme="yb" aria-label="Жовтий на чорному">A</button>
+      <button class="swatch" data-theme="gb" aria-label="Зелений на чорному">A</button>
+      <button class="swatch" data-theme="bw" aria-label="Чорний на білому">A</button>
+    </span>
+    <button id="vAlign">По центру</button>
+    <button id="vMirror">Дзеркало</button>
     <button id="full">Повний екран</button>
   </div>
 </section>
@@ -2414,32 +2490,100 @@ safe-buffer/index.js:
   (*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE *)
 */
 </script>
+
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
+  var each = function (sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); };
   var BROKERS = ['wss://broker.hivemq.com:8884/mqtt', 'wss://broker.emqx.io:8084/mqtt', 'wss://test.mosquitto.org:8081'];
   var clients = [], mode = null, code = null, lastText = '', lastSeq = 0, wake = null, gotAny = false;
+  var gen = 0;  // bumps on every start/exit, so late async results of an old session are dropped
   var peer = {};  // broker url -> whether the other side is present there ('on'/'off' presence, with a will for vanishing)
   var peerSeen = false;  // viewer: the phone has been here
+
+  /* ---- storage ---- */
+  function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} return null; }
   function store(kind) { try { return kind === 'edit' ? localStorage : sessionStorage; } catch (e) { return null; } }
   function saveSession() { var st = store(mode); if (st && code) try { st.setItem('lt_' + mode, JSON.stringify({ code: code, text: lastText, at: Date.now() })); } catch (e) {} }
   function loadSession(kind) { var st = store(kind); try { var v = st && JSON.parse(st.getItem('lt_' + kind)); if (v && /^[a-z0-9]{8}$/.test(v.code) && Date.now() - v.at < 12 * 3600e3) return v; } catch (e) {} return null; }
   function dropSession() { ['edit', 'view'].forEach(function (k) { var st = store(k); try { st && st.removeItem('lt_' + k); } catch (e) {} }); }
-  function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
 
+  /* ---- encryption: key and room id both come from the code, the code itself never leaves the device ---- */
+  var key = null, room = null, te = new TextEncoder(), td = new TextDecoder();
+  function b64(u8) { var s = ''; for (var i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return btoa(s); }
+  function unb64(s) { var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function derive(c) {
+    var subtle = window.crypto && crypto.subtle;
+    if (!subtle) return Promise.reject(new Error('no subtle'));
+    return subtle.importKey('raw', te.encode(c), 'PBKDF2', false, ['deriveBits'])
+      .then(function (k) { return subtle.deriveBits({ name: 'PBKDF2', salt: te.encode('ltxt-v2'), iterations: 150000, hash: 'SHA-256' }, k, 384); })
+      .then(function (bits) {
+        var b = new Uint8Array(bits), hex = '';
+        for (var i = 32; i < 48; i++) hex += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+        return subtle.importKey('raw', b.slice(0, 32), 'AES-GCM', false, ['encrypt', 'decrypt']).then(function (k) { return { key: k, room: hex }; });
+      });
+  }
+  function seal(obj) {
+    var iv = crypto.getRandomValues(new Uint8Array(12));
+    return crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, te.encode(JSON.stringify(obj))).then(function (ct) {
+      var out = new Uint8Array(12 + ct.byteLength); out.set(iv); out.set(new Uint8Array(ct), 12); return b64(out);
+    });
+  }
+  function unseal(s) {
+    var u; try { u = unb64(s); } catch (e) { return Promise.resolve(null); }
+    if (!key || u.length < 29) return Promise.resolve(null);
+    return crypto.subtle.decrypt({ name: 'AES-GCM', iv: u.slice(0, 12) }, key, u.slice(12))
+      .then(function (p) { return JSON.parse(td.decode(p)); }).catch(function () { return null; });
+  }
+
+  /* ---- screen settings, shared by both sides; the newest version wins ---- */
+  var THEMES = ['wb', 'yb', 'gb', 'bw'];
+  var DEF = { v: 0, size: 120, theme: 'wb', align: 'center', mirror: false };
+  function clean(o) {
+    o = o || {};
+    return { v: +o.v || 0, size: Math.min(600, Math.max(20, Math.round(+o.size) || 120)), theme: THEMES.indexOf(o.theme) >= 0 ? o.theme : 'wb', align: o.align === 'left' ? 'left' : 'center', mirror: !!o.mirror };
+  }
+  function loadSet() {
+    var s; try { s = JSON.parse(ls('lt_set')); } catch (e) {}
+    if (!s) { s = clean(DEF); var old = +ls('lt_size'); if (old >= 20) s.size = old; }  // size from the previous version
+    return clean(s);
+  }
+  var set = clean(DEF), setKnown = false;  // phone: settings not yet heard from the screen
+  function applySet() {
+    var v = $('viewer');
+    v.dataset.theme = set.theme; v.dataset.align = set.align; v.dataset.mirror = set.mirror ? '1' : '0';
+    $('size').value = set.size; $('sizeOut').textContent = set.size + 'px';
+    each('.swatch', function (b) { b.classList.toggle('on', (mode !== 'edit' || setKnown) && b.dataset.theme === set.theme); });
+    var al = set.align === 'left' ? 'Ліворуч' : 'По центру';
+    $('vAlign').textContent = al; $('rAlign').textContent = al;
+    $('vMirror').textContent = set.mirror ? 'Дзеркало ✓' : 'Дзеркало';
+    $('rMirror').classList.toggle('on', set.mirror);
+    $('rSize').textContent = (mode !== 'edit' || setKnown) ? set.size : '—';
+    each('#remote button', function (b) { b.disabled = mode === 'edit' && !setKnown; });
+    if (mode === 'view') fit(!current.trim());
+  }
+  function changeSet(patch) {
+    if (mode === 'edit' && !setKnown) return;
+    for (var k in patch) set[k] = patch[k];
+    set = clean(set); set.v = Math.max(Date.now(), set.v + 1);
+    if (mode !== 'edit') ls('lt_set', JSON.stringify(set));
+    applySet();
+    if (key) pub(TS, set);
+  }
+
+  function peerOn() { for (var k in peer) if (peer[k]) return true; return false; }
   function clearHash() { try { if (location.hash) history.replaceState(null, '', location.pathname + location.search); } catch (e) { try { location.hash = ''; } catch (e2) {} } }
   function show(id) { ['start','pair','join','editor','viewer'].forEach(function (s) { $(s).classList.toggle('on', s === id); }); }
   function setDots(ok, t) { ['pDot','eDot','vDot'].forEach(function (d) { $(d).classList.toggle('ok', ok); }); $('pStat').textContent = t; $('eStat').textContent = t; $('vStat').textContent = t; }
-  function randCode() { var a = 'abcdefghjkmnpqrstuvwxyz23456789', s = '', r = new Uint8Array(8); (window.crypto || {}).getRandomValues ? crypto.getRandomValues(r) : r.forEach(function (_, i) { r[i] = Math.random() * 255; }); for (var i = 0; i < 8; i++) s += a[r[i] % a.length]; return s; }
+  function randCode() { var a = 'abcdefghjkmnpqrstuvwxyz23456789', s = '', r = new Uint8Array(8); crypto.getRandomValues(r); for (var i = 0; i < 8; i++) s += a[r[i] % a.length]; return s; }
   function keepAwake() { try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (l) { wake = l; }).catch(function () {}); } catch (e) {} }
   document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && mode) keepAwake(); });
-
   function online() { return clients.filter(function (c) { return c.connected; }).length; }
   function refresh() {
     var n = online();
     if (mode === 'view') {
       if (peerOn()) peerSeen = true;
-      if (!n) setDots(false, 'Немає зв\u2019язку з сервером…');
+      if (!n) setDots(false, 'Немає зв’язку з сервером…');
       else if (peerOn()) setDots(true, 'Телефон підключено');
       else if (peerSeen) setDots(false, 'Телефон не на зв’язку, чекаю · код ' + code);
       else setDots(true, 'Готово, чекаю на телефон');
@@ -2448,42 +2592,81 @@ safe-buffer/index.js:
       else setDots(peerOn(), peerOn() ? 'Екран підключено' : 'Екран ще не відкритий або офлайн');
     }
   }
-
   function sayOff(p) { clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, p, { retain: true, qos: 0 }); } catch (e) {} } }); }
   function cleanup() {
     sayOff('bye');  // an explicit exit: the screen goes back to the start (a phone that just vanished is waited for)
-    dropSession(); if (mode === 'edit') { $('input').value = ''; lastText = ''; }
+    dropSession(); if (mode === 'edit') { $('input').value = ''; lastText = ''; set = clean(DEF); setKnown = false; }
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
-    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false;
+    clients = []; mode = null; code = null; peer = {}; gotAny = false; lastSeq = 0; peerSeen = false; key = null; room = null; gen++;
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
   }
-  Array.prototype.forEach.call(document.querySelectorAll('[data-back]'), function (b) { b.addEventListener('click', cleanup); });
+  each('[data-back]', function (b) { b.addEventListener('click', cleanup); });
 
   /* ---- viewer rendering ---- */
   var shown = $('shown'), stage = $('stage'), current = '';
-  try { var saved = +localStorage.getItem('lt_size'); if (saved >= 20 && saved <= 400) $('size').value = saved; } catch (e) {}
   function fit(empty) {
-    var px = empty ? 28 : +$('size').value;
-    shown.style.fontSize = px + 'px';
-    $('sizeOut').textContent = $('size').value + 'px';
+    shown.style.fontSize = (empty ? 28 : set.size) + 'px';
     stage.scrollTop = stage.scrollHeight;  // once the screen is full, older lines move up out of view
     stage.classList.toggle('scrolled', stage.scrollTop > 0);
   }
   function render(t) { current = t; var empty = !t.trim(); shown.textContent = empty ? 'Очікування тексту…' : t; shown.classList.toggle('empty', empty); fit(empty); }
   window.addEventListener('resize', function () { if (mode === 'view') fit(!current.trim()); });
-  $('size').addEventListener('input', function () { try { localStorage.setItem('lt_size', this.value); } catch (e) {} fit(!current.trim()); });
-  $('mir').addEventListener('change', function () { shown.classList.toggle('mirror', this.checked); });
+  $('size').addEventListener('input', function () { changeSet({ size: +this.value }); });
+  $('vAlign').addEventListener('click', function () { changeSet({ align: set.align === 'left' ? 'center' : 'left' }); });
+  $('vMirror').addEventListener('click', function () { changeSet({ mirror: !set.mirror }); });
   $('full').addEventListener('click', function () { var el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el); } catch (e) {} });
   stage.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(function () { fit(!current.trim()); }, 30); });
 
+  /* ---- phone: screen remote ---- */
+  each('.swatch', function (b) { b.addEventListener('click', function () { changeSet({ theme: b.dataset.theme }); }); });
+  $('rMinus').addEventListener('click', function () { changeSet({ size: Math.min(set.size - 2, Math.round(set.size / 1.15)) }); });
+  $('rPlus').addEventListener('click', function () { changeSet({ size: Math.max(set.size + 2, Math.round(set.size * 1.15)) }); });
+  $('rAlign').addEventListener('click', function () { changeSet({ align: set.align === 'left' ? 'center' : 'left' }); });
+  $('rMirror').addEventListener('click', function () { changeSet({ mirror: !set.mirror }); });
+  function remoteOpen(on) { $('remote').classList.toggle('open', on); $('remoteBtn').classList.toggle('on', on); $('remoteBtn').setAttribute('aria-expanded', on); ls('lt_remote', on ? '1' : '0'); }
+  $('remoteBtn').addEventListener('click', function () { remoteOpen(!$('remote').classList.contains('open')); });
+  remoteOpen(ls('lt_remote') === '1');
+
+  /* ---- phone: phrases ---- */
+  var DEF_PHRASES = ['Перерва 10 хвилин', 'Починаємо за 5 хвилин', 'Тиша, йде запис', 'Питання?', 'Дякуємо!'];
+  function loadPhrases() { try { var p = JSON.parse(ls('lt_phrases')); if (Array.isArray(p)) return p.filter(function (x) { return typeof x === 'string'; }); } catch (e) {} return DEF_PHRASES.slice(); }
+  var phrases = loadPhrases();
+  function renderPhrases() {
+    var box = $('phrases'); box.textContent = '';
+    phrases.forEach(function (p) {
+      var b = document.createElement('button'); b.className = 'pill'; b.textContent = p;
+      b.addEventListener('click', function () { $('input').value = p; lastText = p; queueSend(); saveSession(); });
+      box.appendChild(b);
+    });
+    var e = document.createElement('button'); e.className = 'pill edit'; e.textContent = '✎ Фрази';
+    e.addEventListener('click', function () { $('peText').value = phrases.join('\n'); $('phraseEdit').classList.add('open'); $('peText').focus(); });
+    box.insertBefore(e, box.firstChild);  // first, so it is visible without scrolling the row
+  }
+  function closePE() { $('phraseEdit').classList.remove('open'); }
+  $('peCancel').addEventListener('click', closePE);
+  $('peReset').addEventListener('click', function () { $('peText').value = DEF_PHRASES.join('\n'); });
+  $('peSave').addEventListener('click', function () {
+    phrases = $('peText').value.split('\n').map(function (s) { return s.trim(); }).filter(Boolean).slice(0, 40);
+    ls('lt_phrases', JSON.stringify(phrases)); renderPhrases(); closePE();
+  });
+  renderPhrases();
+
   /* ---- transport: all brokers at once, de-duplicated ---- */
-  var TT, TV, TE, myTopic;  // text, viewer presence, editor presence, this side's presence
+  var TT, TS, TV, TE, myTopic, peerTopic;  // text, settings, viewer presence, editor presence
+  function pub(topic, obj) {
+    var g = gen;
+    seal(obj).then(function (p) {
+      if (g !== gen) return;
+      clients.forEach(function (c) { if (c.connected) { try { c.publish(topic, p, { retain: true, qos: 0 }); } catch (e) {} } });
+    }).catch(function () {});
+  }
   function open(role) {
-    if (typeof mqtt === 'undefined' || !mqtt.connect) { setDots(false, 'Не завантажилась бібліотека зв\u2019язку (стара версія браузера?)'); return; }
-    TT = 'ltxt/' + code + '/t'; TV = 'ltxt/' + code + '/v'; TE = 'ltxt/' + code + '/e';
-    myTopic = role === 'view' ? TV : TE; var peerTopic = role === 'view' ? TE : TV;
+    if (typeof mqtt === 'undefined' || !mqtt.connect) { setDots(false, 'Не завантажилась бібліотека зв’язку (стара версія браузера?)'); return; }
+    var base = 'ltxt2/' + room, g = gen;
+    TT = base + '/t'; TS = base + '/s'; TV = base + '/v'; TE = base + '/e';
+    myTopic = role === 'view' ? TV : TE; peerTopic = role === 'view' ? TE : TV;
     BROKERS.forEach(function (url) {
       var opts = { clientId: 'lt' + Math.random().toString(16).slice(2, 10), clean: true, reconnectPeriod: 2000, connectTimeout: 8000, keepalive: 20 };
       opts.will = { topic: myTopic, payload: 'off', retain: true, qos: 0 };
@@ -2491,33 +2674,44 @@ safe-buffer/index.js:
       try { c = mqtt.connect(url, opts); } catch (e) { return; }
       clients.push(c);
       c.on('connect', function () {
-        c.subscribe(peerTopic); c.publish(myTopic, 'on', { retain: true });
-        if (role === 'view') c.subscribe(TT); else sendNow();
+        c.subscribe([peerTopic, TS].concat(role === 'view' ? [TT] : []));
+        c.publish(myTopic, 'on', { retain: true });
+        if (role === 'view') pub(TS, set); else sendNow();
         refresh();
       });
       c.on('close', function () { peer[url] = false; refresh(); });
       c.on('error', function () {});
       c.on('message', function (topic, payload) {
         var s = payload.toString();
-        if (role === 'view' && topic === TT) {
-          try { var m = JSON.parse(s); if (typeof m.t === 'string' && m.s > lastSeq) { lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh(); } } catch (e) {}
-        } else if (topic === peerTopic) {
+        if (topic === peerTopic) {
           if (s === 'bye' && role === 'view' && peerSeen) { cleanup(); return; }  // the phone left: back to the start screen
           peer[url] = (s === 'on'); refresh();
+        } else if (topic === TT && role === 'view') {
+          unseal(s).then(function (m) {
+            if (g !== gen || !m || typeof m.t !== 'string' || !(m.s > lastSeq)) return;
+            lastSeq = m.s; gotAny = true; if (!$('viewer').classList.contains('on')) show('viewer'); render(m.t.slice(-5000)); refresh();
+          });
+        } else if (topic === TS) {
+          unseal(s).then(function (m) {
+            if (g !== gen || !m) return;
+            var n = clean(m);
+            if (n.v > set.v || (role === 'edit' && !setKnown && n.v >= set.v)) {
+              set = n; setKnown = true;
+              if (role === 'view') ls('lt_set', JSON.stringify(set));
+              applySet();
+            }
+          });
         }
       });
     });
   }
   var sendT = null;
-  function sendNow() {
-    var msg = JSON.stringify({ s: Date.now(), t: lastText });
-    clients.forEach(function (c) { if (c.connected) { try { c.publish(TT, msg, { retain: true, qos: 0 }); } catch (e) {} } });
-  }
+  function sendNow() { if (key) pub(TT, { s: Date.now(), t: lastText }); }
   function queueSend() { if (!sendT) sendT = setTimeout(function () { sendT = null; sendNow(); }, 80); }
   $('input').addEventListener('input', function () { lastText = this.value.slice(-5000); queueSend(); saveSession(); });
   $('clear').addEventListener('click', function () { $('input').value = ''; lastText = ''; queueSend(); saveSession(); $('input').focus(); });
   setInterval(function () {  // heal dropped messages and stale wills
-    if (!mode) return;
+    if (!mode || !key) return;
     clients.forEach(function (c) { if (c.connected) { try { c.publish(myTopic, 'on', { retain: true, qos: 0 }); } catch (e) {} } });
     if (mode === 'edit') sendNow();
   }, 5000);
@@ -2525,34 +2719,48 @@ safe-buffer/index.js:
   var hiddenAt = 0;
   document.addEventListener('visibilitychange', function () {
     if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
-    if (!mode || Date.now() - hiddenAt < 5000) return;
+    if (!mode || !key || Date.now() - hiddenAt < 5000) return;
     // after sleep the old sockets are often dead but not yet noticed: open fresh ones (graceful end, so no stale will)
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
     clients = []; peer = {}; setDots(false, 'Відновлюю з’єднання…'); open(mode);
   });
 
+  function connect(role) {
+    var g = ++gen;
+    setDots(false, 'Готую шифрування…');
+    derive(code).then(function (r) {
+      if (g !== gen) return;
+      key = r.key; room = r.room;
+      setDots(false, 'Підключення до сервера…');
+      open(role);
+    }).catch(function () { if (g === gen) setDots(false, 'Цей браузер не підтримує шифрування (потрібна сторінка по https)'); });
+  }
   function startViewer(resume) {
     mode = 'view'; code = resume || randCode(); saveSession(); show('pair'); keepAwake();
+    set = loadSet(); applySet();
     $('codeText').textContent = code;
     var url = location.origin + location.pathname + '#' + code;
     var hosted = /^https?:$/.test(location.protocol) && !/claudeusercontent|srcdoc/.test(location.href);
     if (!hosted) { $('pairTitle').textContent = 'Це не розміщена сторінка'; $('codeText').textContent = code; }
     try { var q = qrcode(0, 'M'); q.addData(url); q.make(); $('qr').innerHTML = q.createSvgTag({ cellSize: 6, margin: 0, scalable: true }); } catch (e) { $('qr').textContent = url; }
-    setDots(false, 'Підключення до сервера…');
-    open('view');
+    connect('view');
   }
   function startEditor(c, text) {
     c = c.trim().toLowerCase();
     if (!/^[a-z0-9]{8}$/.test(c)) { alert('Код має містити 8 символів'); return; }
     if (text != null) { lastText = text; $('input').value = text; }
     code = c; mode = 'edit'; show('editor'); keepAwake(); saveSession();
+    set = clean(DEF); setKnown = false; applySet();
     clearHash();
-    setDots(false, 'Підключення до сервера…');
-    open('edit');
+    connect('edit');
   }
   $('btnView').addEventListener('click', function () { startViewer(); });
   $('btnEdit').addEventListener('click', function () { show('join'); $('codeIn').focus(); });
   $('btnGo').addEventListener('click', function () { startEditor($('codeIn').value); });
+  $('codeIn').addEventListener('keydown', function (e) { if (e.key === 'Enter') startEditor(this.value); });
+
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('sw.js').catch(function () {});
+
   var h = (location.hash || '').replace('#', '').trim();
   var se = loadSession('edit'), sv = loadSession('view');
   if (/^[a-z0-9]{8}$/i.test(h)) startEditor(h, se && se.code === h.toLowerCase() ? se.text : '');
