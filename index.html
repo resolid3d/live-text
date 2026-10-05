@@ -89,6 +89,11 @@
   #vctl button { border:1px solid #57534e; background:#292524; color:#fafaf9; padding:8px 12px; border-radius:10px; font-size:14px; }
   #vctl .swatch { border-color:#57534e; padding:0; }
   #vctl .swatch.on { border-color:#3b82f6; box-shadow:0 0 0 2px #3b82f6; }
+  #qrOver { position:absolute; inset:0; z-index:5; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.72); cursor:pointer; }
+  #qrOver.open { display:flex; }
+  #qrOver .card { background:#fff; color:#1c1917; border-radius:20px; padding:22px 26px; display:flex; flex-direction:column; align-items:center; gap:12px; text-align:center; }
+  #qrOver .card svg { width:min(60vmin, 360px); height:auto; display:block; }
+  #qrOver .card b { font-size:30px; letter-spacing:4px; font-family:ui-monospace, Menlo, monospace; }
   #vstat { position:absolute; top:8px; left:12px; margin-top: env(safe-area-inset-top,0px); }
   #vstat .status { color:#a8a29e; }
   #viewer[data-theme=bw] #vstat .status { color:#57534e; }
@@ -159,6 +164,7 @@
 <section id="viewer" class="screen" data-theme="wb" data-align="center" data-mirror="0">
   <div id="vstat"><span class="status"><span class="dot" id="vDot"></span><span id="vStat">Очікую…</span></span></div>
   <div id="panes"></div>
+  <div id="qrOver" role="dialog" aria-label="QR для ще одного телефона"><div class="card"><div id="qr2"></div><b id="qr2code"></b><span>Скануйте, щоб додати ще один телефон</span><small style="color:#78716c">Натисніть, щоб сховати</small></div></div>
   <div id="vctl">
     <button data-back>← Вийти</button>
     <label for="size">Розмір</label>
@@ -172,6 +178,7 @@
     </span>
     <button id="vAlign">По центру</button>
     <button id="vMirror">Дзеркало</button>
+    <button id="qrBtn">QR</button>
     <button id="full">Повний екран</button>
   </div>
 </section>
@@ -2619,7 +2626,7 @@ safe-buffer/index.js:
     dropSession(); if (mode === 'edit') { $('input').value = ''; lastText = ''; set = clean(DEF); setKnown = false; }
     clients.forEach(function (c) { try { c.end(false); } catch (e) {} });
     clients = []; mode = null; code = null; peer = {}; peerSeen = false; key = null; room = null; gen++;
-    writers = {}; slots = {}; myId = null; mySlot = null; renderPanes();
+    writers = {}; slots = {}; myId = null; mySlot = null; renderPanes(); qrOver(false);
     try { if (wake) wake.release(); } catch (e) {} wake = null;
     clearHash();
     show('start');
@@ -2664,6 +2671,7 @@ safe-buffer/index.js:
       if (s == null || used.indexOf(s) >= 0) { s = 0; while (used.indexOf(s) >= 0) s++; }  // the lowest free colour
       slots[id] = s; w = writers[id] = { id: id, text: '', seq: 0, pres: {}, slot: s };
       saveSession(); pub(TA, slots);
+      qrOver(false);  // a new phone has joined
     }
     return w;
   }
@@ -2671,6 +2679,9 @@ safe-buffer/index.js:
   $('vAlign').addEventListener('click', function () { changeSet({ align: set.align === 'left' ? 'center' : 'left' }); });
   $('vMirror').addEventListener('click', function () { changeSet({ mirror: !set.mirror }); });
   $('full').addEventListener('click', function () { var el = document.documentElement; try { (el.requestFullscreen || el.webkitRequestFullscreen).call(el); } catch (e) {} });
+  function qrOver(on) { if (on) { $('qr2').innerHTML = $('qr').innerHTML; $('qr2code').textContent = code; } $('qrOver').classList.toggle('open', on); }
+  $('qrBtn').addEventListener('click', function () { qrOver(!$('qrOver').classList.contains('open')); });
+  $('qrOver').addEventListener('click', function () { qrOver(false); });
   panes.addEventListener('click', function () { $('vctl').classList.toggle('hide'); setTimeout(renderPanes, 30); });
 
   /* ---- phone: screen remote ---- */
